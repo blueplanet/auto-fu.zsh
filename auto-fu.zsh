@@ -540,11 +540,18 @@ afu-reset () {
   [[ -z ${ps} ]] || POSTDISPLAY=''
 }
 
+with-afu-semantics () {
+  afu_approximate_correcting_p=
+  afu_curcompleter=
+  "$@"
+}
+
 with-afu () {
   local clearp="$1"; shift
   local zlefun="$1"; shift
   local -a zs
   : ${(A)zs::=$@}
+  with-afu-semantics;
   afu-clearing-maybe "$clearp"
   ((afu_in_p == 1)) && { afu_in_p=0; BUFFER="$buffer_cur" }
   zle $zlefun && {
@@ -748,12 +755,22 @@ with-afu-completer-vars () {
 }
 
 auto-fu () {
+  local inserts="(*approximate|match)"
+  # being propagated from `afu+complete-word` then
+  # `_match|_approximate|etc. ⇒ select something` or not.
+  [[ "${afu_curcompleter-}" == ${~inserts} ]] &&
+  [[ $WIDGET == (magic-space|accept-line*) ]] && {
+    with-afu-compfuncs zle list-choices
+    return
+  }
+
   cursor_cur="$CURSOR"
   buffer_cur="$BUFFER"
   with-afu-completer-vars zle complete-word
   cursor_new="$CURSOR"
   buffer_new="$BUFFER"
 
+  local force_menuselect_off_p=
   if [[ "$buffer_cur[1,cursor_cur]" == "$buffer_new[1,cursor_cur]" ]];
   then
     CURSOR="$cursor_cur"
@@ -776,14 +793,38 @@ auto-fu () {
     }
     fi
   else
-    BUFFER="$buffer_cur"
-    CURSOR="$cursor_cur"
-    zle list-choices
+    # `_match|_approximate|etc. ⇒ select something` or not.
+    [[ "${afu_curcompleter-}" == ${~inserts} ]] && {
+      [[ $KEYS[-1] == ' ' ]]     ||
+      [[ $KEYS[-1] == $'\015' ]] ||
+      [[ $KEYS[-1] == $'\012' ]] || {
+        [[ $LBUFFER[-1] == $KEYS[-1] ]] && {
+          [[ -n ${afu_pattern_matching_p-} ]] ||
+          [[ -n ${afu_approximate_correcting_p-} ]]
+        } && { LBUFFER=$LBUFFER[1,-2]; force_menuselect_off_p=t }
+      }
+    } || {
+      BUFFER="$buffer_cur"
+      CURSOR="$cursor_cur"
+      with-afu-compfuncs zle list-choices
+    }
   fi
+
+  # forcibly enter the menuselect state.
+  [[ -z ${force_menuselect_off_p} ]] &&
+  [[ -n ${afu_pattern_matching_p-} ]] &&
+  [[ -z ${afu_one_match_p-} ]] &&
+  { with-afu-compfuncs zle complete-word }
 }
 zle -N auto-fu
 
-afu-comppre () {}
+afu-comppre () {
+  typeset -g afu_pattern_matching_p=
+  local tmp="${${:-$PREFIX$SUFFIX}#[~=]}"
+  [[ "$tmp:q" = "$tmp" ]] && return
+  afu_pattern_matching_p=t
+  : ${(A)_completers::=${_completers:#(_afu)#_approximate}}
+}
 
 afu-comppost () {
   ((compstate[list_lines] + BUFFERLINES + 2 > LINES)) && {
@@ -793,6 +834,8 @@ afu-comppost () {
 
   typeset -g afu_one_match_p=
   (( $compstate[nmatches] == 1 )) && afu_one_match_p=t
+
+  afu_curcompleter=$_completer
 }
 
 afu+complete-word () {
@@ -839,6 +882,21 @@ afu+complete-word () {
 afu+complete-word~ () { zle auto-fu-extend -- afu+complete-word }
 
 zle -N afu+complete-word afu+complete-word~
+
+afu-install-tracking-completer () {
+  local funname="$1"
+  local varname="$2"
+  local completer=${funname#_afu}
+  eval "$(cat <<EOT
+    $funname () {
+      $varname=
+      $completer
+      (( \$? == 0 )) && $varname=t
+    }
+EOT
+  )"
+}
+afu-install-tracking-completer _afu_approximate afu_approximate_correcting_p
 
 [[ -z ${afu_zcompiling_p-} ]] && unset afu_zles
 
