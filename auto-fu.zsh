@@ -251,6 +251,8 @@ afu-install () {
   bindkey -M afu "^[a" afu+accept-and-hold
   bindkey -M afu "^X^[" afu+vi-cmd-mode
 
+  bindkey -M afu "^Xk" afu+kill-word-no-auto-fu
+
   bindkey -N afu-vicmd vicmd
 }
 
@@ -466,10 +468,20 @@ afu-register-zle-afu () {
   eval "function $afufun () { with-afu $rawzle $afu_zles; }; zle -N $afufun"
 }
 
+afu-register-zle-afu-no-fu () {
+  local afufun="$1"
+  local anofun="${afufun}-no-auto-fu"
+  local rawzle=".${afufun#*+}"
+  local anozle="afu+${rawzle#.}-false"
+  eval "function $anozle () { zle $rawzle && return 1 }; zle -N $anozle"
+  eval "function $anofun () { with-afu $anozle ; }; zle -N $anofun"
+}
+
 afu-initialize-zle-afu () {
   local z
   for z in $afu_zles ;do
     afu-register-zle-afu afu+$z
+    afu-register-zle-afu-no-fu afu+$z
   done
 }
 afu-initialize-zle-afu
