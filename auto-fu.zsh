@@ -540,7 +540,7 @@ afu-reset () {
   [[ -z ${ps} ]] || POSTDISPLAY=''
 }
 
-with-afu-semantics () {
+with-afu-completer-trackings () {
   # tracking last function is the afu+complete-word or not.
   # see also with-afu-match-handling
   local afucompletewordp="${1-}"
@@ -574,7 +574,7 @@ with-afu () {
   local zlefun="$1"; shift
   local -a zs
   : ${(A)zs::=$@}
-  with-afu-semantics;
+  with-afu-completer-trackings;
   afu-clearing-maybe "$clearp"
   ((afu_in_p == 1)) && { afu_in_p=0; BUFFER="$buffer_cur" }
   zle $zlefun && {
@@ -810,6 +810,7 @@ with-afu-match-handling () {
   $fn afu-handle-match-buffer
 
   # forcibly enter the menuselect state.
+  [[ "${afu_curcompleter-}" == "ignored" ]] && return
   [[ -n ${last_afuapproximatecorrecting_p-} ]] && return
   [[ -z ${last_afucompleteword_p-} ]] &&
   [[ -z ${force_menuselect_off_p}  ]] &&
@@ -858,6 +859,12 @@ auto-fu () {
 zle -N auto-fu
 
 afu-comppre () {
+  # XXX: vs. various zstyes.
+  {
+    local -a match mbegin mend
+    local c='_(match|approximate)'
+    : ${(A)_completers::=${_completers/(#b)(#s)(${~c})(#e)/_afu${match[1]}}}
+  }
   # XXX: _match + _approximate does not work as expected inside auto stuff.
   # so, filter out _approximate if _match present.
   [[ -n ${(M)_completers:#(_afu)#_match} ]] && {
@@ -881,7 +888,7 @@ afu-comppost () {
 
 afu+complete-word () {
   afu-clearing-maybe "$1"
-  with-afu-semantics t;
+  with-afu-completer-trackings t;
   { afu-able-p } || { zle complete-word; return; }
 
   with-afu-completer-vars;
