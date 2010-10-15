@@ -542,7 +542,7 @@ afu-reset () {
 
 with-afu-completer-tracking () {
   # tracking last function is the afu+complete-word or not.
-  # see also with-afu-match-handling
+  # see also with-afu-menuselecting-handling
   local afucompletewordp="${1-}"
   last_afucompleteword_p=
   if [[ -n ${afu_complete_word-} ]]; then
@@ -552,7 +552,7 @@ with-afu-completer-tracking () {
   afu_complete_word="${afucompletewordp}"
 
   # tracking last afu_approximate_correcting_p or not.
-  # see also with-afu-match-handling
+  # see also with-afu-menuselecting-handling
   last_afuapproximatecorrecting_p=
   if [[ -n ${afu_approximate_correcting_p-} ]]; then
     last_afuapproximatecorrecting_p=t
@@ -560,7 +560,7 @@ with-afu-completer-tracking () {
   fi
 
   # tracking current _completer value stored inside the completer
-  # see also with-afu-match-handling and afu-comppost
+  # see also with-afu-menuselecting-handling and afu-comppost
   afu_curcompleter=
 
   # see also corresponding completer function.
