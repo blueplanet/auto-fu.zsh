@@ -462,7 +462,7 @@ afu-rh-highlight-state-sync-old () {
 
 afu-rh-highlight-state-sync-cur () {
   local -a cur; : ${(A)cur::=${=afu_rh_state[cur]-}}
-  [[ -n ${cur} ]] && { region_highlight+=("$cur[2,-1]") }
+  [[ -n ${cur} ]] && region_highlight+=("$cur[2,-1]")
 }
 
 afu-rh-highlight-maybe () {
@@ -488,7 +488,9 @@ afu-rh-finish () {
 }
 
 afu-clearing-maybe () {
-  afu-rh-clear-maybe
+  local clearregionp="$1"
+  [[ $clearregionp == t ]] && region_highlight=()
+  [[ $clearregionp != t ]] && afu-rh-clear-maybe
   if ((afu_in_p == 1)); then
     [[ "$BUFFER" != "$buffer_new" ]] || ((CURSOR != cursor_cur)) &&
     { afu_in_p=0 }
@@ -503,10 +505,11 @@ afu-reset () {
 }
 
 with-afu () {
+  local clearp="$1"; shift
   local zlefun="$1"; shift
   local -a zs
   : ${(A)zs::=$@}
-  afu-clearing-maybe
+  afu-clearing-maybe "$clearp"
   ((afu_in_p == 1)) && { afu_in_p=0; BUFFER="$buffer_cur" }
   zle $zlefun && {
     emulate -L zsh
@@ -528,9 +531,12 @@ auto-fu-extend () { "$@" }; zle -N auto-fu-extend
 with-afu~ () { zle auto-fu-extend -- with-afu "$@" }
 
 with-afu-zsh-syntax-highlighting () {
-  { "$@" }
-  (($+functions[_zsh_highlight-zle-buffer])) && {
-    _zsh_highlight-zle-buffer
+  local -i ret=0
+  local -i hip=0; ((hip=$+functions[_zsh_highlight-zle-buffer]))
+  ((hip==0)) && { "$1" t   "$@[2,-1]"; ret=$? }
+  ((hip!=0)) && { "$1" nil "$@[2,-1]"; ret=$? }
+  ((hip==1)) && _zsh_highlight-zle-buffer
+  ((ret==-1)) || {
     local _ok ck
     afu-rh-highlight-state _ok ck; "$ck"
   }
@@ -686,8 +692,10 @@ afu-autoable-skipline-p () {
 }
 
 auto-fu-maybe () {
+  local ret=-1
   (($PENDING== 0)) && { afu-able-p } && [[ $LBUFFER != *$'\012'*  ]] &&
-  { auto-fu }
+  { auto-fu; ret=0 }
+  return ret
 }
 
 with-afu-compfuncs () {
@@ -752,7 +760,7 @@ afu-comppost () {
 }
 
 afu+complete-word () {
-  afu-clearing-maybe
+  afu-clearing-maybe "$1"
   { afu-able-p } || { zle complete-word; return; }
 
   with-afu-completer-vars;
