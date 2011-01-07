@@ -250,7 +250,8 @@ function () {
   emulate -L zsh
   setopt extended_glob
   local -a match mbegin mend
-  local -a rs; rs=($afu_zles complete-word)
+  # auto-fu uses complete-word and list-choices as they are not "rebinded".
+  local -a rs; rs=($afu_zles complete-word list-choices)
   eval "
     function with-afu-zle-rebinding () {
       local -a restores
@@ -260,6 +261,7 @@ function () {
           "$(echo ${afu_zles/(#b)(*)/ \
               zle -N ${match} ${match}-by-keymap;})"
           zle -C complete-word .complete-word _main_complete
+          zle -C list-choices .list-choices _main_complete
         }
         afu-zle-force-install
         { \"\$@\" }
