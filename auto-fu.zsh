@@ -581,6 +581,16 @@ with-afu-zsh-syntax-highlighting () {
 # XXX: redefined!
 zle -N auto-fu-extend with-afu-zsh-syntax-highlighting
 
+afu-resume-maybe () {
+  zstyle -t ':auto-fu:var' resume "$WIDGET" && zle auto-fu-activate
+}
+
+eval "
+with-afu-resume () { afu-resume-maybe; ${widgets[auto-fu-extend]#*:} \"\$@\" }
+"
+# XXX: redefined!
+zle -N auto-fu-extend with-afu-resume
+
 afu-register-zle-afu () {
   local afufun="$1"
   local rawzle=".${afufun#*+}"
