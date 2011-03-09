@@ -128,13 +128,16 @@
 # zstyle ':auto-fu:var' track-keymap-skip opp
 # #zstyle ':auto-fu:var' disable magic-space
 
-# XXX: use with the error correction or _match completer.
-# If you got the correction errors during auto completing the word, then
-# plese do _not_ do `magic-space` or `accept-line`. Insted please do the
-# following, `undo` and then hit <tab> or throw away the buffer altogether.
-# This applies _match completer with complex patterns, too.
+# XXX: use with the _approximate or _match completer.
+# To track these completers' state, they will be called by their name with
+# 'afu_approximate/afu_match' during the `complete-word'.
+# If you customize the styles of these completers, please update them.
+# For example,
+# -- >8 --
+# #zstyle ':completion:*:match:*' match-original 'only'
+# zstyle ':completion:*:*match:*' match-original 'only'
+# -- 8< --              ^ *Please notice here*
 # I'm very sorry for this annonying behaviour.
-# (For example, 'ls --bbb' and 'ls --*~^*al*' etc.)
 
 # XXX: ignoreeof semantics changes for overriding ^D.
 # You cannot change the ignoreeof option interactively. I'm verry sorry.
@@ -542,11 +545,41 @@ afu-reset () {
   [[ -z ${ps} ]] || POSTDISPLAY=''
 }
 
+with-afu-completer-tracking () {
+  # tracking last function is the afu+complete-word or not.
+  # see also with-afu-menuselecting-handling
+  local afucompletewordp="${1-}"
+  last_afucompleteword_p=
+  if [[ -n ${afu_complete_word-} ]]; then
+    last_afucompleteword_p=t
+    afu_complete_word=
+  fi
+  afu_complete_word="${afucompletewordp}"
+
+  # tracking last afu_approximate_correcting_p or not.
+  # see also with-afu-menuselecting-handling
+  last_afuapproximatecorrecting_p=
+  if [[ -n ${afu_approximate_correcting_p-} ]]; then
+    last_afuapproximatecorrecting_p=t
+    afu_approximate_correcting_p=
+  fi
+
+  # tracking current _completer value stored inside the completer
+  # see also with-afu-menuselecting-handling and afu-comppost
+  afu_curcompleter=
+
+  # see also corresponding completer function.
+  # _afu_approximate and afu_match.
+  afu_approximate_correcting_p=
+  afu_match_ret=
+}
+
 with-afu () {
   local clearp="$1"; shift
   local zlefun="$1"; shift
   local -a zs
   : ${(A)zs::=$@}
+  with-afu-completer-tracking;
   afu-clearing-maybe "$clearp"
   ((afu_in_p == 1)) && { afu_in_p=0; BUFFER="$buffer_cur" }
   zle $zlefun && {
@@ -742,7 +775,7 @@ afu-autoable-skipline-p () {
 auto-fu-maybe () {
   local ret=-1
   (($PENDING== 0)) && { afu-able-p } && [[ $LBUFFER != *$'\012'*  ]] &&
-  { auto-fu; ret=0 }
+  { with-afu-menuselecting-handling auto-fu; ret=0 }
   return ret
 }
 
@@ -759,7 +792,77 @@ with-afu-completer-vars () {
   with-afu-compfuncs "$@"
 }
 
+with-afu-menuselecting-handling () {
+  local fn="$1"
+  local inserts="*(approximate|match|ignored)"
+
+  # being propagated from `afu+complete-word` then
+  # `_match|_approximate|etc. ⇒ select something` or not.
+  [[ "${afu_curcompleter-}" == ${~inserts} ]] &&
+  [[ $WIDGET == (magic-space|accept-line*) ]] && {
+    with-afu-compfuncs zle list-choices
+    return
+  }
+
+  local force_menuselect_off_p=
+  (( $+functions[afu-handle-menuselecting-buffer-keep-p] )) &&
+  [[ -z ${AUTO_FU_NOFUNCMEMO-} ]] ||
+  afu-handle-menuselecting-buffer-keep-p () {
+    # `_match|_approximate|etc. ⇒ select something` or not.
+    [[ "${afu_curcompleter-}" == ${~inserts} ]] && {
+
+      # _approximating: (just selected the candidate)
+      # keep the current buffer and do *NOT* call complete-word.
+      [[ -n ${afu_approximate_correcting_p-} ]] && {
+        { afu-hmbk-seleted-key-p } && { force_menuselect_off_p=t; return 0 }
+        # TODO: describe the purpose!
+        [[ $KEYS[-1] == [[:]] ]] && {
+          [[ $LBUFFER[-1] == ' '       ]] && { LBUFFER=$LBUFFER[1,-2] }
+          [[ $LBUFFER[-1] == $KEYS[-1] ]] && { LBUFFER=$LBUFFER[1,-2] }
+         return 0
+        }
+      }
+
+      # _matching: (_match completer is in use; narrowing the candidates)
+      # do *NOT* call complete-word after redrawing the current buffer with
+      # the old contents (ex: *ab*)
+      [[ -n ${afu_match_ret-} ]] && {
+        # accept-line-ish does not involve any auto-stuff, so turn on.
+        [[ $KEYS[-1] == $'\015' ]] && force_menuselect_off_p=
+        { afu-hmbk-seleted-key-p } && return 0 || return 1
+      }
+
+      { afu-hmbk-seleted-key-p } || {
+        [[ $LBUFFER[-1] == $KEYS[-1] ]] &&
+        [[ $LBUFFER[-1] == '/' ]]       && {
+          # path-ish ⇒ propagate complete-word by editing LBUFFER
+        } && { LBUFFER=$LBUFFER[1,-2]; force_menuselect_off_p=t }
+      }
+    }
+  }
+  $fn afu-handle-menuselecting-buffer-keep-p
+
+  # forcibly keep being the menuselecting state by calling complete-word,
+  # otherwise we have to hit the tab key once more.
+  [[ "${afu_curcompleter-}" == ignored ]] && return
+  [[ -n ${last_afuapproximatecorrecting_p-} ]] && return
+  [[ -z ${last_afucompleteword_p-} ]] &&
+  [[ -z ${force_menuselect_off_p}  ]] &&
+  [[ -z ${afu_one_match_p-}        ]] &&
+  { [[ -n ${afu_match_ret-} ]] && ((${afu_match_ret} == 0)) } &&
+  { with-afu-compfuncs zle complete-word }
+}
+
+afu-hmbk-seleted-key-p () {
+  [[ $KEYS[-1] == ' ' ]]     && return 0
+  [[ $KEYS[-1] == $'\015' ]] && return 0
+  [[ $KEYS[-1] == $'\012' ]] && return 0
+  [[ $KEYS[-1] == $'/' ]]    && return 0 # for example 'scp host:/'
+  return 1
+}
+
 auto-fu () {
+  local keepbufferp="$1"
   cursor_cur="$CURSOR"
   buffer_cur="$BUFFER"
   with-afu-completer-vars zle complete-word
@@ -781,21 +884,37 @@ auto-fu () {
     }
 
     if [[ "$buffer_cur" != "$buffer_new" ]] || ((cursor_cur != cursor_new))
-    then afu_in_p=1; {
+    then afu_in_p=1; { $keepbufferp } || {
       local BUFFER="$buffer_cur"
       local CURSOR="$cursor_cur"
       with-afu-completer-vars zle list-choices
     }
     fi
   else
-    BUFFER="$buffer_cur"
-    CURSOR="$cursor_cur"
-    zle list-choices
+    { $keepbufferp } || {
+      BUFFER="$buffer_cur"
+      CURSOR="$cursor_cur"
+      with-afu-compfuncs zle list-choices
+    }
   fi
 }
 zle -N auto-fu
 
-afu-comppre () {}
+afu-comppre () {
+  # XXX: vs. various zstyes.
+  {
+    local -a match mbegin mend
+    local c='_(match|approximate)'
+    : ${(A)_completers::=${_completers/(#b)(#s)(${~c})(#e)/_afu${match[1]}}}
+  }
+  # XXX: _match + _approximate does not work as expected inside auto stuff.
+  # so, filter out _approximate if _match present.
+  [[ -n ${(M)_completers:#(_afu)#_match} ]] && {
+    local tmp="${${:-$PREFIX$SUFFIX}#[~=]}"
+    [[ "$tmp:q" = "$tmp" ]] && return
+    : ${(A)_completers::=${_completers:#(_afu)#_approximate}}
+  }
+}
 
 afu-comppost () {
   ((compstate[list_lines] + BUFFERLINES + 2 > LINES)) && {
@@ -805,10 +924,13 @@ afu-comppost () {
 
   typeset -g afu_one_match_p=
   (( $compstate[nmatches] == 1 )) && afu_one_match_p=t
+
+  afu_curcompleter=$_completer
 }
 
 afu+complete-word () {
   afu-clearing-maybe "$1"
+  with-afu-completer-tracking t;
   { afu-able-p } || { zle complete-word; return; }
 
   with-afu-completer-vars;
@@ -858,6 +980,45 @@ afu+complete-word () {
 afu+complete-word~ () { zle auto-fu-extend -- afu+complete-word }
 
 zle -N afu+complete-word afu+complete-word~
+
+afu-install-tracking-completer () {
+  local funname="$1"
+  local varname="$2"
+  local nozerop="${3:-}"
+  local retfunc="${4:-}"
+  local completer=${funname#_afu}
+  eval "$(cat <<EOT
+    $funname () {
+      local ret=
+      $varname=
+
+      $completer
+      ret=\$?
+
+      if [[ -n "$nozerop" ]]; then
+        $varname=\$ret
+      else
+        (( ret == 0 )) && $varname=t
+      fi
+
+      [[ -n "$retfunc" ]] && $retfunc \$ret
+
+      return ret
+    }
+EOT
+  )"
+}
+afu-install-tracking-completer _afu_approximate afu_approximate_correcting_p
+afu-install-tracking-completer _afu_match afu_match_ret t afu-match-init-maybe
+
+afu-match-init-maybe () {
+  local -i ret="$1"
+  # Special treatment during the _match completer invocation.
+  ((!$ret)) && {
+    _message "$BUFFER"
+  }
+  return ret
+}
 
 [[ -z ${afu_zcompiling_p-} ]] && unset afu_zles
 
