@@ -687,11 +687,18 @@ afu+complete-word () {
         };;
       (/) # path-ish  ⇒ propagate auto-fu if it could be
         { # TODO: this may not be enough.
-          local y="((*-)#directories|all-files|(command|executable)s)"
-          y=${AUTO_FU_PATHITH:-${y}}
-          local -a x; x=${(M)${(@z)"${_lastcomp[tags]}"}:#${~y}}
+          emulate -L zsh
+          setopt extended_glob
+          local d e; local -a ds es
+          e="((*-)#directories|all-files|(command|executable)s)"
+          e=${AUTO_FU_PATHITH:-${e}}
+          d="(remote\ files)"
+          e=${AUTO_FU_NOPATHITH:-${e}}
+          ds=${(M)${(@z)"${_lastcomp[tags]}"}:#${~d}}
+          es=${(M)${(@z)"${_lastcomp[tags]}"}:#${~e}}
           zle complete-word
-          [[ -n $x ]] && zle -U "$LBUFFER[-1]"
+          #(($#ds == 0)) && [[ -n $es ]] && zle -U "$LBUFFER[-1]"
+          [[ -n $es ]] && zle -U "$LBUFFER[-1]"
           return
         };;
       (,) # glob-ish  ⇒ activate the `complete-word''s suffix
