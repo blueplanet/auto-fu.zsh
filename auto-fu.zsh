@@ -446,6 +446,49 @@ afu-line-init () {
 
 auto-fu-init () { with-afu-zle-rebinding afu-line-init }; zle -N auto-fu-init
 
+with-afu-trapint () {
+  emulate -L zsh
+  TRAPINT () { with-afu-trap-handling afu-trap-ignore-int "$@"; return $? }
+  "$@"
+}
+
+with-afu-trap-handling () {
+  case "$WIDGET" in
+    afu+complete-word) {
+      (($_lastcomp[nmatches] > 1)) && \
+        # XXX: This is most likely menuselecting state ⇒ escape from it.
+        return $((128 + $?))
+    };;
+    history*) { zle send-break; return 0 } ;; # send-break escapes actually.
+  esac
+  [[ -n ${afu_match_ret-} ]] && { zle send-break; return 0; }
+  "$@"
+  return $?
+}
+
+afu-trap-ignore-int () {
+  typeset -gi afu_trap_count
+  if [[ "$LASTWIDGET" == "auto-fu-deactivate" ]]; then
+    ((afu_trap_count++))
+  else
+    afu_trap_count=0
+  fi
+  ((afu_trap_count > 0)) && {
+    afu_trap_count=0
+    zle .send-break
+    return $((128 + $1))
+  }
+  zle auto-fu-deactivate
+}
+
+# TODO: propagate!!
+afu-trap-send-break () { return $((128 + $1)); }
+
+# XXX: redefined!
+eval "
+auto-fu-init () { with-afu-trapint $functions[auto-fu-init] }
+"
+
 # Entry point.
 with-afu-gvars () {
   (( auto_fu_init_p == 1 )) && {
@@ -615,6 +658,16 @@ with-afu-zsh-syntax-highlighting () {
 
 # XXX: redefined!
 zle -N auto-fu-extend with-afu-zsh-syntax-highlighting
+
+afu-resume-maybe () {
+  zstyle -t ':auto-fu:var' resume "$WIDGET" && zle auto-fu-activate
+}
+
+eval "
+with-afu-resume () { afu-resume-maybe; ${widgets[auto-fu-extend]#*:} \"\$@\" }
+"
+# XXX: redefined!
+zle -N auto-fu-extend with-afu-resume
 
 afu-register-zle-afu () {
   local afufun="$1"
